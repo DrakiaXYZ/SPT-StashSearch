@@ -8,6 +8,10 @@ using UnityEngine.UI;
 using StashSearch.Utils;
 using System.Collections;
 using EFT;
+using System.Collections.Generic;
+using System.Linq;
+using EFT.InventoryLogic;
+using System;
 
 namespace StashSearch
 {
@@ -139,12 +143,12 @@ namespace StashSearch
             _inputFieldPlayer.enabled = false;
 
             // Recursively search, starting at the player stash
-            _searchControllerPlayer.Search(_inputFieldPlayer.text, _gridViewPlayer.Grid, _gridViewPlayer.Grid.Id);
+            HashSet<Item> searchResult = _searchControllerPlayer.Search(_inputFieldPlayer.text, _gridViewPlayer.Grid, _gridViewPlayer.Grid.Id);
+
+            // Refresh the grid view
+            RefreshGridView(_gridViewPlayer, searchResult);
 
             AccessTools.Field(typeof(GridView), "_nonInteractable").SetValue(_gridViewPlayer, true);
-
-            // refresh the UI
-            StaticManager.BeginCoroutine(UpdatePlayerView());
 
             yield break;
         }
@@ -154,7 +158,7 @@ namespace StashSearch
             _searchControllerPlayer.RestoreHiddenItems(_gridViewPlayer.Grid);
 
             // refresh the UI
-            StaticManager.BeginCoroutine(UpdatePlayerView());
+            RefreshGridView(_gridViewPlayer, null);
 
             // Enable user input
             _inputFieldPlayer.enabled = true;
@@ -165,15 +169,6 @@ namespace StashSearch
             yield break;
         }
 
-        private IEnumerator UpdatePlayerView()
-        {
-            _scrollRectPlayer.normalizedPosition = Vector2.zero;
-
-            yield return new WaitForSeconds(0.5f);
-
-            _scrollRectPlayer.normalizedPosition = Vector2.up;
-        }
-
         private IEnumerator SearchTrader()
         {
             if (_inputFieldTrader.text == string.Empty) yield break;
@@ -182,20 +177,20 @@ namespace StashSearch
             _inputFieldTrader.enabled = false;
 
             // Search the trader
-            _searchControllerTrader.Search(_inputFieldTrader.text, _gridViewTrader.Grid, _gridViewTrader.Grid.Id);
+            HashSet<Item> searchResult = _searchControllerTrader.Search(_inputFieldTrader.text, _gridViewTrader.Grid, _gridViewTrader.Grid.Id);
 
-            // refresh the UI
-            StaticManager.BeginCoroutine(UpdateTraderView());
-            
+            // Refresh the grid view
+            RefreshGridView(_gridViewTrader, searchResult);
+
             yield break;
         }
 
         private IEnumerator ClearTraderSearch()
         {
-            _searchControllerTrader.RestoreHiddenItems(_gridViewPlayer.Grid);
+            _searchControllerTrader.RestoreHiddenItems(_gridViewTrader.Grid);
 
             // refresh the UI
-            StaticManager.BeginCoroutine(UpdateTraderView());
+            RefreshGridView(_gridViewTrader, null);
 
             // Enable user input
             _inputFieldTrader.enabled = true;
@@ -204,13 +199,26 @@ namespace StashSearch
             yield break;
         }
 
-        private IEnumerator UpdateTraderView()
+        private void RefreshGridView(GridView gridView, HashSet<Item> searchResult)
         {
-            _scrollRectTrader.normalizedPosition = Vector2.zero;
-            
-            yield return new WaitForSeconds(0.5f);
+            if (searchResult != null)
+            {
+                // If we were given search results to show, clean up the gridItemDict of any items not in our search results
+                // This is required because BSG's code is broken
+                var gridItemDict = (Dictionary<string, ItemView>)AccessTools.Field(typeof(GridView), "dictionary_0").GetValue(gridView);
 
-            _scrollRectTrader.normalizedPosition = Vector2.up;
+                foreach (var itemView in gridItemDict.Values.ToArray())
+                {
+                    if (!itemView.BeingDragged && !searchResult.Contains(itemView.Item))
+                    {
+                        gridItemDict.Remove(itemView.Item.Id);
+                        itemView.Kill();
+                    }
+                }
+            }
+
+            // Trigger the gridView to redraw
+            gridView.MagnifyIfPossible();
         }
     }     
 }
